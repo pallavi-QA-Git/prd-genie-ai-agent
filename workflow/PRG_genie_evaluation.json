@@ -1,0 +1,143 @@
+{
+  "name": "PRG genie evaluation",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -768,
+        -800
+      ],
+      "id": "69268ef2-4b4e-4b4c-899d-2b3a1e66cf13",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst testCases = [\n  {\n    test_id: \"T1\",\n    test_type: \"Detailed Transcript\",\n    input: \"The user should be able to filter reports by date range, category, and status. Results must load in under 2 seconds. PM: Sarah. Deadline: Q3.\",\n    expected: \"Extract date/category/status filters, load time under 2 seconds, Sarah as PM, and Q3 deadline. Do not invent requirements.\"\n  },\n  {\n    test_id: \"T2\",\n    test_type: \"Vague Brief\",\n    input: \"We need better reporting. Something like what Competitor X has.\",\n    expected: \"Flag ambiguity and missing metrics, formats, and target users. Do not invent requirements.\"\n  },\n  {\n    test_id: \"T3\",\n    test_type: \"Contradictory Requirements\",\n    input: \"The dashboard should auto-refresh every 5 seconds. Later: Performance is critical, minimize API calls.\",\n    expected: \"Identify the tension between frequent refresh and minimizing API calls. Flag for stakeholder clarification.\"\n  }\n];\n\nreturn testCases.map(tc => ({\n  json: tc\n}));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -576,
+        -800
+      ],
+      "id": "c5054df8-0bcf-48ce-a1ba-8a052edbdaec",
+      "name": "Prepare Testcase"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst testCases = $input.all();\n\nreturn testCases.map(item => {\n  const tc = item.json;\n\n  const document = {\n    source_id: \"DOC-001\",\n    file_name: `${tc.test_id}.txt`,\n    source_type: \"Meeting Transcript\",\n    content: tc.input\n  };\n\n  const transcript =\n    `=== SOURCE ${document.source_id}: ${document.file_name} ===\\n` +\n    `Source Type: ${document.source_type}\\n\\n` +\n    document.content;\n\n  return {\n    json: {\n      test_id: tc.test_id,\n      test_type: tc.test_type,\n      expected: tc.expected,\n      document_count: 1,\n      documents: [document],\n      transcript: transcript\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -400,
+        -784
+      ],
+      "id": "5de838c3-6102-4173-8989-1bd28cca63eb",
+      "name": "Prepare PRD Input"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "7JIOhejmGAZPU03R",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/7JIOhejmGAZPU03R",
+          "cachedResultName": "PRD Genie — Processing Engine."
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.4,
+      "position": [
+        -224,
+        -784
+      ],
+      "id": "77d4954a-9ebd-4d3f-a788-8dbb00e7bd78",
+      "name": "Run PRD Genie Engine"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst items = $input.all();\n\nreturn items.map(item => {\n  const data = item.json;\n  const id = data.test_id;\n  const result = data.output || {};\n\n  const fr = result.functional_requirements || [];\n  const nfr = result.non_functional_requirements || [];\n  const requirements = [...fr, ...nfr];\n\n  const requirementText = requirements\n    .map(r => r.requirement || \"\")\n    .join(\" \")\n    .toLowerCase();\n\n  let checks = {};\n\n  // T1 — Detailed Transcript\n  if (id === \"T1\") {\n    const stakeholders = result.stakeholders || [];\n    const deadlines = result.deadlines || [];\n\n    checks = {\n      date_filter: requirementText.includes(\"date\"),\n      category_filter: requirementText.includes(\"category\"),\n      status_filter: requirementText.includes(\"status\"),\n      performance: /2\\s*seconds?/.test(requirementText),\n\n      stakeholder: stakeholders.some(s =>\n        (s.name || \"\").toLowerCase() === \"sarah\"\n      ),\n\n      deadline: deadlines.some(d =>\n        (d.target || \"\").toLowerCase().includes(\"q3\")\n      ),\n\n      grounding: data.validation?.passed === true\n    };\n  }\n\n  // T2 — Vague Brief\n  else if (id === \"T2\") {\n    const ambiguities = result.ambiguous_or_tbd_items || [];\n    const questions = result.open_questions || [];\n\n    const clarificationText = [...ambiguities, ...questions]\n      .join(\" \")\n      .toLowerCase();\n\n    checks = {\n      ambiguity_flagged:\n        ambiguities.length > 0 || questions.length > 0,\n\n      missing_metrics_identified:\n        /metric|measur|success criteria|acceptance criteria/\n          .test(clarificationText),\n\n      missing_scope_identified:\n        /feature|report|scope|format/\n          .test(clarificationText),\n\n      no_confirmed_requirements:\n        requirements.every(r => r.status !== \"confirmed\"),\n\n      grounding: data.validation?.passed === true\n    };\n  }\n\n  // T3 — Contradictory Requirements\n  else if (id === \"T3\") {\n    const contradictions = result.contradictions || [];\n    const questions = result.open_questions || [];\n    const ambiguities = result.ambiguous_or_tbd_items || [];\n\n    const clarificationText = [\n      ...questions,\n      ...ambiguities,\n      ...contradictions.map(c =>\n        c.clarification_question || \"\"\n      )\n    ].join(\" \").toLowerCase();\n\n    checks = {\n      refresh_interval_preserved:\n        /5\\s*seconds?/.test(requirementText),\n\n      api_constraint_preserved:\n        /api calls?/.test(requirementText),\n\n      tension_identified:\n        contradictions.length > 0 ||\n        /reconcil|trade.off|conflict|priority/\n          .test(clarificationText),\n\n      clarification_requested:\n        questions.length > 0 &&\n        /refresh|api calls?|priority/\n          .test(clarificationText),\n\n      no_silent_resolution:\n        requirements.every(r => r.status !== \"confirmed\"),\n\n      grounding: data.validation?.passed === true\n    };\n  }\n\n  // Other test cases — Not evaluated yet\n  else {\n    return {\n      json: {\n        test_id: id,\n        result: \"NOT_EVALUATED\",\n        reason: \"Evaluation rules not added yet\"\n      }\n    };\n  }\n\n  // Common reporting logic for T1, T2 and T3\n  const failedChecks = Object.entries(checks)\n    .filter(([, passed]) => !passed)\n    .map(([key]) => key);\n\n  const validationErrors = data.validation?.errors || [];\n\n  const passed =\n    failedChecks.length === 0 &&\n    validationErrors.length === 0;\n\n  return {\n    json: {\n      test_id: id,\n      result: passed ? \"PASS\" : \"FAIL\",\n      checks,\n      failed_checks: failedChecks,\n      validation_errors: validationErrors,\n      failure_reason: passed\n        ? \"All automated checks passed\"\n        : [\n            ...failedChecks.map(\n              check => `Evaluation check failed: ${check}`\n            ),\n            ...validationErrors.map(\n              error => `Validation error: ${error}`\n            )\n          ].join(\"; \"),\n      total_requirements:\n        data.validation?.total_requirements ?? 0,\n      evidence_verified:\n        data.validation?.evidence_verified ?? 0\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -32,
+        -784
+      ],
+      "id": "c99d4b8d-d21f-48b1-b6d3-bb9659d94224",
+      "name": "Evaluate Test Cases"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Prepare Testcase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Testcase": {
+      "main": [
+        [
+          {
+            "node": "Prepare PRD Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare PRD Input": {
+      "main": [
+        [
+          {
+            "node": "Run PRD Genie Engine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run PRD Genie Engine": {
+      "main": [
+        [
+          {
+            "node": "Evaluate Test Cases",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "9d7b660b-d247-49a2-97c3-cfa95cb2e69b",
+  "meta": {
+    "instanceId": "76f1edadfc44187b235ad30dca4f13c2c8477f08431c30d661a49fb889397ef5"
+  },
+  "nodeGroups": [],
+  "id": "jKKs9PZ7oGeP4KFd",
+  "tags": []
+}
